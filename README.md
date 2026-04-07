@@ -134,6 +134,66 @@ OpenMV → 허브 : (cx, cy, size)                         [3h]
 
 ---
 
+## 조립 카드
+
+로봇팔 조립 방법은 아래 링크에서 다운로드할 수 있습니다.
+
+[조립 카드 다운로드 (Google Drive)](https://drive.google.com/drive/folders/153qIJ2Uoyatf7BGc-a_ej0jWLAFDPR3j?usp=drive_link)
+
+---
+
+## 학습 시스템
+
+### 개요
+PC 기반 자율 학습 시스템으로 로봇팔의 60개 포즈를 탐색하고, 각 이동 구간에서 가장 부드러운 움직임을 만드는 최적 속도를 학습합니다.
+
+### 학습 범위
+| 관절 | 범위 | 스텝 | 포즈 수 |
+|------|------|------|---------|
+| a21 (하단) | -15° ~ 30° | 15° | 4 |
+| a19 (중단) | 10° ~ 30° | 10° | 3 |
+| a22 (상단) | -30° ~ 30° | 15° | 5 |
+| **전체** | | | **60포즈** |
+
+### 학습 단계
+1. **Phase 1 - 자율 탐색**: 60개 포즈를 순서대로 이동하며 각 위치에서 노랑 끝단 좌표(cx, cy) 기록
+2. **Phase 2 - 속도 프로파일 학습**: 각 이동 구간에서 speed [5, 10, 20, 30, 50] 후보를 테스트하여 궤적 부드러움(velocity variance) 최소화
+3. **Phase 3 - 재생**: 학습된 최적 속도로 전체 포즈 순서 재생
+
+### 학습 결과 (`learned_motion.json`)
+60개 포즈 탐색 완료. 각 포즈별 최적 속도 예시:
+
+```json
+{
+  "dataset": [...],
+  "learned_speed": {
+    "(-15, 10, -30)": 20,
+    "(-15, 10, -15)": 20,
+    "(-15, 10,   0)":  5,
+    ...
+  }
+}
+```
+
+### 학습 실행 순서
+```
+1. ESP32  : learning/esp32_learning.py 실행 (Viper IDE → Disconnect)
+2. OpenMV : learning/openmv_stream.py 를 main.py로 저장 후 재부팅
+3. PC     : python3 learning/pc_learning.py
+```
+
+> 학습 완료 후 Hub + PUPRemote 일반 운용 시에는 `esp32_servo.py`를 main.py로 복구
+
+### 관련 파일
+| 파일 | 설명 |
+|------|------|
+| `learning/pc_learning.py` | PC 학습 메인 스크립트 |
+| `learning/esp32_learning.py` | ESP32 학습 전용 코드 (PUPRemote 없음) |
+| `learning/openmv_stream.py` | OpenMV 노랑 끝단 스트리밍 (QVGA, 30fps) |
+| `learned_motion.json` | 학습 결과 데이터 (60포즈 최적 속도) |
+
+---
+
 ## 라이선스
 
 MIT License
