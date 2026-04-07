@@ -94,14 +94,20 @@ for a21 in A21_RANGE:
             cx, cy = get_marker()
             if cx is not None:
                 dataset.append((a21, a19, a22, cx, cy))
-                print(f"[{count}/{total}] a21={a21:4} a19={a19:4} a22={a22:4}"
-                      f" → marker({cx},{cy})")
+                print("[" + str(count) + "/" + str(total) + "]"
+                      + " a21=" + str(a21)
+                      + " a19=" + str(a19)
+                      + " a22=" + str(a22)
+                      + " -> marker(" + str(cx) + "," + str(cy) + ")")
                 hub.speaker.beep(frequency=600, duration=30)
             else:
-                print(f"[{count}/{total}] a21={a21:4} a19={a19:4} a22={a22:4}"
-                      f" → 마커 없음 (스킵)")
+                print("[" + str(count) + "/" + str(total) + "]"
+                      + " a21=" + str(a21)
+                      + " a19=" + str(a19)
+                      + " a22=" + str(a22)
+                      + " -> marker 없음 (skip)")
 
-print(f"\n탐색 완료: {len(dataset)}/{total}개 데이터 수집")
+print("탐색 완료: " + str(len(dataset)) + "/" + str(total) + "개 수집")
 
 if len(dataset) == 0:
     print("데이터 없음 — OpenMV 및 노랑 임계값 확인 필요")
@@ -134,7 +140,11 @@ while True:
 
     joints, dist = find_nearest(cx, cy)
     a21, a19, a22 = joints
-    print(f"marker({cx},{cy}) → a21={a21} a19={a19} a22={a22} (dist={dist:.1f})")
+    print("marker(" + str(cx) + "," + str(cy) + ")"
+          + " -> a21=" + str(a21)
+          + " a19=" + str(a19)
+          + " a22=" + str(a22)
+          + " dist=" + str(int(dist)))
 
     move_and_wait(a21, a19, a22, speed=INFER_SPEED)
     prev_cx, prev_cy = cx, cy
