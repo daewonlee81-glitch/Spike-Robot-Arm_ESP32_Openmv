@@ -18,8 +18,8 @@ import math
 import json
 
 # ── 포트 설정 ─────────────────────────────────────────
-OPENMV_PORT = "/dev/cu.usbmodem_openmv"   # OpenMV USB 포트
-ESP32_PORT  = "/dev/cu.usbmodem_esp32"    # ESP32  USB 포트
+OPENMV_PORT = "/dev/cu.usbmodem3965377731332"   # OpenMV Virtual Comm Port
+ESP32_PORT  = "/dev/cu.usbserial-110"          # ESP32 USB Serial
 # Windows 예시: "COM3", "COM4"
 BAUD = 115200
 
