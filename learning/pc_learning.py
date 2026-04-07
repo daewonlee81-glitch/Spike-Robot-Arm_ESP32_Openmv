@@ -2,9 +2,11 @@
 PC 학습 스크립트
 
 연결:
-  OpenMV USB Serial → PC : 노랑 끝단 (cx, cy) 수신
-  ESP32  USB Serial → PC : 관절 위치 (a21,a19,a22,a20) 수신
-  Hub    USB Serial ← PC : 이동 명령 전송 → PUPRemote → ESP32
+  OpenMV USB Serial → PC        : 노랑 끝단 (cx, cy) 수신
+  ESP32  USB Serial ↔ PC        : 관절 위치 수신 + 이동 명령 직접 전송
+
+Hub는 학습 중 사용하지 않음
+일반 운용 시에는 Hub → PUPRemote → ESP32 방식 유지
 
 필요 패키지:
   pip install pyserial
@@ -18,8 +20,7 @@ import json
 # ── 포트 설정 ─────────────────────────────────────────
 OPENMV_PORT = "/dev/cu.usbmodem_openmv"   # OpenMV USB 포트
 ESP32_PORT  = "/dev/cu.usbmodem_esp32"    # ESP32  USB 포트
-HUB_PORT    = "/dev/cu.usbmodem_hub"      # SPIKE Prime 허브 포트
-# Windows 예시: "COM3", "COM4", "COM5"
+# Windows 예시: "COM3", "COM4"
 BAUD = 115200
 
 # ── 탐색 범위 ─────────────────────────────────────────
@@ -33,19 +34,10 @@ SPEED_CANDIDATES = [5, 10, 20, 30, 50]
 def connect():
     omv = serial.Serial(OPENMV_PORT, BAUD, timeout=0.1)
     esp = serial.Serial(ESP32_PORT,  BAUD, timeout=0.1)
-    hub = serial.Serial(HUB_PORT,    BAUD, timeout=0.5)
-
-    # 허브 준비 신호 대기
-    print("허브 준비 대기...")
-    while True:
-        line = hub.readline().decode(errors='ignore').strip()
-        if line == "ready":
-            break
-
+    time.sleep(1.0)
     print("OpenMV 연결 : " + OPENMV_PORT)
     print("ESP32  연결 : " + ESP32_PORT)
-    print("Hub    연결 : " + HUB_PORT)
-    return omv, esp, hub
+    return omv, esp
 
 # ── OpenMV: 노랑 끝단 위치 읽기 ──────────────────────
 def read_marker(omv):
@@ -75,12 +67,23 @@ def read_joints(esp):
         pass
     return None
 
-# ── Hub: 이동 명령 전송 ───────────────────────────────
-def send_move(hub, a21, a19, a22, a20=0, speed=20):
+# ── ESP32: 이동 명령 직접 전송 ────────────────────────
+def send_move(esp, a21, a19, a22, a20=0, speed=20):
     cmd = "move," + str(a21) + "," + str(a19) + "," + \
           str(a22) + "," + str(a20) + "," + str(speed) + "\n"
-    hub.write(cmd.encode())
-    hub.readline()   # "ok\n" 수신 대기
+    esp.write(cmd.encode())
+
+# ── ESP32 도달 대기 ───────────────────────────────────
+def wait_arrived(esp, a21, a19, a22, timeout=3.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        joints = read_joints(esp)
+        if joints:
+            c21, c19, c22, _ = joints
+            if abs(c21-a21)<=2 and abs(c19-a19)<=2 and abs(c22-a22)<=2:
+                return True
+        time.sleep(0.05)
+    return False
 
 # ── 궤적 부드러움 계산 ────────────────────────────────
 def smoothness(trajectory):
@@ -96,8 +99,8 @@ def smoothness(trajectory):
     return variance
 
 # ── 이동하며 궤적 기록 ────────────────────────────────
-def measure_trajectory(omv, hub, a21, a19, a22, speed, duration=2.0):
-    send_move(hub, a21, a19, a22, 0, speed)
+def measure_trajectory(omv, esp, a21, a19, a22, speed, duration=2.0):
+    send_move(esp, a21, a19, a22, 0, speed)
     trajectory = []
     start      = time.time()
     while time.time() - start < duration:
@@ -108,9 +111,9 @@ def measure_trajectory(omv, hub, a21, a19, a22, speed, duration=2.0):
     return trajectory
 
 # ═══════════════════════════════════════════════════
-# Phase 1: 자율 탐색 (Hub 명령 + ESP32 도달 확인 + OpenMV 시각)
+# Phase 1: 자율 탐색
 # ═══════════════════════════════════════════════════
-def phase1_explore(omv, esp, hub):
+def phase1_explore(omv, esp):
     print("=== Phase 1: 자율 탐색 ===")
     dataset = []
     poses   = [(a21, a19, a22)
@@ -120,26 +123,12 @@ def phase1_explore(omv, esp, hub):
     total = len(poses)
 
     for i, (a21, a19, a22) in enumerate(poses):
-        # Hub 경유 이동 명령
-        send_move(hub, a21, a19, a22, 0, 20)
+        send_move(esp, a21, a19, a22, 0, 20)
+        arrived = wait_arrived(esp, a21, a19, a22)
+        time.sleep(0.3)
 
-        # ESP32 시리얼로 도달 확인
-        arrived  = False
-        deadline = time.time() + 3.0
-        while time.time() < deadline:
-            joints = read_joints(esp)
-            if joints:
-                c21, c19, c22, _ = joints
-                if (abs(c21-a21)<=2 and abs(c19-a19)<=2 and abs(c22-a22)<=2):
-                    arrived = True
-                    break
-            time.sleep(0.05)
-
-        time.sleep(0.3)   # 안정화 대기
-
-        # OpenMV 끝단 위치 확인
-        cx, cy   = read_marker(omv)
-        status   = "arrived" if arrived else "timeout"
+        cx, cy  = read_marker(omv)
+        status  = "arrived" if arrived else "timeout"
 
         if cx is not None:
             dataset.append({'a21': a21, 'a19': a19, 'a22': a22,
@@ -164,7 +153,7 @@ def phase1_explore(omv, esp, hub):
 # ═══════════════════════════════════════════════════
 # Phase 2: 속도 프로파일 학습
 # ═══════════════════════════════════════════════════
-def phase2_learn_speed(omv, esp, hub, dataset):
+def phase2_learn_speed(omv, esp, dataset):
     print("\n=== Phase 2: 속도 프로파일 학습 ===")
     learned = {}
 
@@ -182,10 +171,10 @@ def phase2_learn_speed(omv, esp, hub, dataset):
               + " a22=" + str(dst['a22']))
 
         for speed in SPEED_CANDIDATES:
-            send_move(hub, src['a21'], src['a19'], src['a22'], 0, 30)
+            send_move(esp, src['a21'], src['a19'], src['a22'], 0, 30)
             time.sleep(0.8)
 
-            traj  = measure_trajectory(omv, hub,
+            traj  = measure_trajectory(omv, esp,
                                        dst['a21'], dst['a19'], dst['a22'],
                                        speed, duration=1.5)
             score = smoothness(traj)
@@ -205,7 +194,7 @@ def phase2_learn_speed(omv, esp, hub, dataset):
 # ═══════════════════════════════════════════════════
 # Phase 3: 학습된 속도로 재생
 # ═══════════════════════════════════════════════════
-def phase3_playback(hub, dataset, learned):
+def phase3_playback(esp, dataset, learned):
     print("\n=== Phase 3: 학습 결과 재생 ===")
     for entry in dataset:
         key   = (entry['a21'], entry['a19'], entry['a22'])
@@ -214,17 +203,17 @@ def phase3_playback(hub, dataset, learned):
               + " a19=" + str(entry['a19'])
               + " a22=" + str(entry['a22'])
               + " speed=" + str(speed))
-        send_move(hub, entry['a21'], entry['a19'], entry['a22'], 0, speed)
+        send_move(esp, entry['a21'], entry['a19'], entry['a22'], 0, speed)
         time.sleep(0.5)
 
 # ── 메인 ─────────────────────────────────────────────
 if __name__ == "__main__":
-    omv, esp, hub = connect()
+    omv, esp = connect()
 
-    dataset = phase1_explore(omv, esp, hub)
+    dataset = phase1_explore(omv, esp)
 
     if dataset:
-        learned = phase2_learn_speed(omv, esp, hub, dataset)
+        learned = phase2_learn_speed(omv, esp, dataset)
 
         result = {
             'dataset': dataset,
@@ -234,8 +223,7 @@ if __name__ == "__main__":
             json.dump(result, f, indent=2)
         print("\n저장 완료: learned_motion.json")
 
-        phase3_playback(hub, dataset, learned)
+        phase3_playback(esp, dataset, learned)
 
     omv.close()
     esp.close()
-    hub.close()

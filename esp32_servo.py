@@ -131,9 +131,14 @@ p.add_command('speedmove', to_hub_fmt='b',  from_hub_fmt='5b')  # a21,a19,a22,a2
 p.add_command('getpos',    to_hub_fmt='4b', from_hub_fmt='')    # cur21,cur19,cur22,cur20
 
 # ── 메인 루프 ─────────────────────────────────────────
+import sys
+import select
+
 last_update = time.ticks_ms()
 last_print  = time.ticks_ms()
 PRINT_MS    = 100   # PC로 관절 위치 전송 주기 (ms)
+
+serial_buf  = ""
 
 while True:
     p.process()
@@ -151,3 +156,18 @@ while True:
               str(int(cur22)) + "," +
               str(int(cur20)))
         last_print = now
+
+    # PC → USB Serial 명령 수신 (학습 모드)
+    # 포맷: "move,a21,a19,a22,a20,speed\n"
+    if select.select([sys.stdin], [], [], 0)[0]:
+        ch = sys.stdin.read(1)
+        if ch:
+            serial_buf += ch
+            if '\n' in serial_buf:
+                line       = serial_buf.strip()
+                serial_buf = ""
+                parts      = line.split(',')
+                if parts[0] == 'move' and len(parts) == 6:
+                    set_target(int(parts[1]), int(parts[2]),
+                               int(parts[3]), int(parts[4]),
+                               int(parts[5]))
