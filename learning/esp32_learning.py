@@ -1,28 +1,27 @@
 """
-ESP32 - 학습 모드 WiFi 서버
-PC에서 WiFi로 직접 서보 명령 수신
-기존 PUPRemote 없이 독립 실행
+ESP32 학습 전용 코드 (PUPRemote 없음)
+PC ↔ USB Serial 직접 통신
 
-명령 포맷 (TCP):
-  "a21,a19,a22,speed\n"  → 서보 이동
-  "pos\n"                → 현재 위치 반환 "a21,a19,a22\n"
+수신 포맷: "move,a21,a19,a22,a20,speed\n"
+송신 포맷: "cur21,cur19,cur22,cur20\n"  (100ms 주기)
+
+사용법:
+  Thonny에서 이 파일을 실행 (Run 버튼)
+  학습 완료 후 esp32_servo.py를 main.py로 복구하여 일반 운용
 """
 
 from machine import Pin, PWM
-import network
-import socket
 import time
-
-# ── WiFi 설정 ─────────────────────────────────────────
-WIFI_SSID = "your_ssid"      # ← 실제 WiFi SSID로 변경
-WIFI_PASS = "your_password"  # ← 실제 비밀번호로 변경
-PORT      = 8080
+import sys
+import select
 
 # ── 서보 설정 ─────────────────────────────────────────
 servo21 = PWM(Pin(21), freq=50)
 servo19 = PWM(Pin(19), freq=50)
 servo22 = PWM(Pin(22), freq=50)
+servo20 = PWM(Pin(20), freq=50)
 
+# ── 유틸 ─────────────────────────────────────────────
 def clamp(v, vmin, vmax):
     if v < vmin: return vmin
     if v > vmax: return vmax
@@ -37,18 +36,22 @@ def set_angle(servo, angle):
 cur21 = 0.0
 cur19 = 0.0
 cur22 = 0.0
+cur20 = 0.0
 
 target21 = 0.0
 target19 = 0.0
 target22 = 0.0
+target20 = 0.0
 
 acc21 = 0.0
 acc19 = 0.0
 acc22 = 0.0
+acc20 = 0.0
 
 speed21 = 30.0
 speed19 = 30.0
 speed22 = 30.0
+speed20 = 30.0
 
 TICK_MS = 10
 
@@ -67,93 +70,84 @@ def step_toward_acc(current, target, speed_dps, acc):
     return current, acc
 
 def update_servos():
-    global cur21, cur19, cur22, acc21, acc19, acc22
+    global cur21, cur19, cur22, cur20
+    global acc21, acc19, acc22, acc20
+
     cur21, acc21 = step_toward_acc(cur21, target21, speed21, acc21)
     cur19, acc19 = step_toward_acc(cur19, target19, speed19, acc19)
     cur22, acc22 = step_toward_acc(cur22, target22, speed22, acc22)
+    cur20, acc20 = step_toward_acc(cur20, target20, speed20, acc20)
+
     set_angle(servo21, int(cur21))
     set_angle(servo19, int(cur19))
     set_angle(servo22, int(cur22))
+    set_angle(servo20, int(cur20))
 
-def set_target(a21, a19, a22, speed):
-    global target21, target19, target22
-    global speed21, speed19, speed22, acc21, acc19, acc22
-    target21 = float(clamp(a21, -15, 30))
-    target19 = float(clamp(a19,  10, 35))
-    target22 = float(clamp(a22, -30, 30))
-    dps      = clamp(speed, 1, 100) * 5.0
-    speed21  = dps
-    speed19  = dps
-    speed22  = dps
-    acc21    = 0.0
-    acc19    = 0.0
-    acc22    = 0.0
+# ── 목표 설정 ─────────────────────────────────────────
+def set_target(a21, a19, a22, a20, speed):
+    global target21, target19, target22, target20
+    global speed21, speed19, speed22, speed20
+    global acc21, acc19, acc22, acc20
 
-# ── WiFi 연결 ─────────────────────────────────────────
-wlan = network.WLAN(network.STA_IF)
-wlan.active(True)
-wlan.connect(WIFI_SSID, WIFI_PASS)
+    target21 = float(clamp(a21, -30, 45))
+    target19 = float(clamp(a19,   0, 60))
+    target22 = float(clamp(a22, -30, 45))
+    target20 = float(clamp(a20, -15, 15))
 
-print("WiFi 연결 중...")
-while not wlan.isconnected():
-    time.sleep(0.5)
+    speed   = clamp(speed, 1, 100)
+    dps     = speed * 5.0
+    speed21 = dps
+    speed19 = dps
+    speed22 = dps
+    speed20 = dps
 
-print("WiFi 연결 완료:", wlan.ifconfig()[0])
+    acc21 = 0.0
+    acc19 = 0.0
+    acc22 = 0.0
+    acc20 = 0.0
 
-# ── TCP 서버 ──────────────────────────────────────────
-srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-srv.bind(('', PORT))
-srv.listen(1)
-srv.setblocking(False)
-print("서버 대기 중 — Port:", PORT)
+# ── 초기 위치 ─────────────────────────────────────────
+set_angle(servo21, 0)
+set_angle(servo19, 0)
+set_angle(servo22, 0)
+set_angle(servo20, 0)
+time.sleep(0.5)
+
+print("ESP32 학습 모드 시작")
 
 # ── 메인 루프 ─────────────────────────────────────────
-conn        = None
-buf         = ""
 last_update = time.ticks_ms()
+last_print  = time.ticks_ms()
+PRINT_MS    = 100
+
+serial_buf  = ""
 
 while True:
-    # 클라이언트 연결 수락
-    if conn is None:
-        try:
-            conn, addr = srv.accept()
-            conn.setblocking(False)
-            print("PC 연결:", addr)
-        except:
-            pass
-
-    # 데이터 수신 및 명령 처리
-    if conn:
-        try:
-            data = conn.recv(64)
-            if data:
-                buf += data.decode()
-                while '\n' in buf:
-                    line, buf = buf.split('\n', 1)
-                    line = line.strip()
-
-                    if line == 'pos':
-                        resp = str(int(cur21)) + "," + str(int(cur19)) + "," + str(int(cur22)) + "\n"
-                        conn.send(resp.encode())
-
-                    elif ',' in line:
-                        parts = line.split(',')
-                        if len(parts) == 4:
-                            a21   = int(parts[0])
-                            a19   = int(parts[1])
-                            a22   = int(parts[2])
-                            speed = int(parts[3])
-                            set_target(a21, a19, a22, speed)
-            else:
-                conn.close()
-                conn = None
-                print("PC 연결 해제")
-        except:
-            pass
-
-    # 서보 업데이트
     now = time.ticks_ms()
+
+    # 서보 업데이트 (10ms)
     if time.ticks_diff(now, last_update) >= TICK_MS:
         update_servos()
         last_update = now
+
+    # 관절 위치 PC로 전송 (100ms)
+    if time.ticks_diff(now, last_print) >= PRINT_MS:
+        print(str(int(cur21)) + "," +
+              str(int(cur19)) + "," +
+              str(int(cur22)) + "," +
+              str(int(cur20)))
+        last_print = now
+
+    # PC 명령 수신: "move,a21,a19,a22,a20,speed\n"
+    if select.select([sys.stdin], [], [], 0)[0]:
+        ch = sys.stdin.read(1)
+        if ch:
+            serial_buf += ch
+            if '\n' in serial_buf:
+                line       = serial_buf.strip()
+                serial_buf = ""
+                parts      = line.split(',')
+                if parts[0] == 'move' and len(parts) == 6:
+                    set_target(int(parts[1]), int(parts[2]),
+                               int(parts[3]), int(parts[4]),
+                               int(parts[5]))

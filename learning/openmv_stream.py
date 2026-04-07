@@ -9,16 +9,17 @@ import sensor, image, time
 # ── 카메라 설정 ───────────────────────────────────────
 sensor.reset()
 sensor.set_pixformat(sensor.RGB565)
-sensor.set_framesize(sensor.VGA)     # 640 x 480
+sensor.set_framesize(sensor.QVGA)    # 320 x 240 (VGA보다 4배 빠름)
 sensor.skip_frames(time=2000)
-sensor.set_auto_gain(False)
-sensor.set_auto_whitebal(False)
-sensor.set_auto_exposure(False)
+sensor.set_auto_gain(True)
+sensor.set_auto_whitebal(True)
 
 # ── 노랑 임계값 (LAB) ─────────────────────────────────
-YELLOW_THRESHOLD = (57, 100, -128, 83, 127, 36)
+# 형식: (L_min, L_max, A_min, A_max, B_min, B_max)
+# 노랑 = B 채널 양수(36~127), A 채널 중립
+YELLOW_THRESHOLD = (27, 100, -128, 49, 36, 127)
 
-ROI = (0, 0, 640, 480)
+ROI = (0, 0, 320, 240)
 
 # ── 메인 루프 ─────────────────────────────────────────
 while True:
@@ -27,8 +28,8 @@ while True:
     blobs = img.find_blobs(
         [YELLOW_THRESHOLD],
         roi=ROI,
-        pixels_threshold=500,   # VGA 기준 상향
-        area_threshold=500,
+        pixels_threshold=100,
+        area_threshold=100,
         merge=True
     )
 
@@ -37,5 +38,3 @@ while True:
         print(str(tip.cx()) + "," + str(tip.cy()) + "," + str(tip.pixels()))
     else:
         print("-1,-1,0")
-
-    time.sleep_ms(33)   # 30fps 목표
