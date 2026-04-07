@@ -132,11 +132,22 @@ p.add_command('getpos',    to_hub_fmt='4b', from_hub_fmt='')    # cur21,cur19,cu
 
 # ── 메인 루프 ─────────────────────────────────────────
 last_update = time.ticks_ms()
+last_print  = time.ticks_ms()
+PRINT_MS    = 100   # PC로 관절 위치 전송 주기 (ms)
 
 while True:
     p.process()
 
     now = time.ticks_ms()
+
     if time.ticks_diff(now, last_update) >= TICK_MS:
         update_servos()
         last_update = now
+
+    # USB Serial → PC로 현재 관절 위치 전송
+    if time.ticks_diff(now, last_print) >= PRINT_MS:
+        print(str(int(cur21)) + "," +
+              str(int(cur19)) + "," +
+              str(int(cur22)) + "," +
+              str(int(cur20)))
+        last_print = now
