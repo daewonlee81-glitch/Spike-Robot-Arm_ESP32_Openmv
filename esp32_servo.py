@@ -62,19 +62,60 @@ def step_toward_acc(current, target, speed_dps, acc):
         current = max(current - move, target)
     return current, acc
 
+# ── 서보 IDLE 타이머 (도달 후 PWM 해제로 발열 방지) ──
+IDLE_MS   = 800    # 목표 도달 후 이 시간(ms) 지나면 PWM 해제
+idle21    = 0
+idle19    = 0
+idle22    = 0
+idle20    = 0
+
 def update_servos():
     global cur21, cur19, cur22, cur20
     global acc21, acc19, acc22, acc20
+    global idle21, idle19, idle22, idle20
+
+    now = time.ticks_ms()
 
     cur21, acc21 = step_toward_acc(cur21, target21, speed21, acc21)
     cur19, acc19 = step_toward_acc(cur19, target19, speed19, acc19)
     cur22, acc22 = step_toward_acc(cur22, target22, speed22, acc22)
     cur20, acc20 = step_toward_acc(cur20, target20, speed20, acc20)
 
-    set_angle(servo21, int(cur21))
-    set_angle(servo19, int(cur19))
-    set_angle(servo22, int(cur22))
-    set_angle(servo20, int(cur20))
+    # a21 — 도달 시 PWM 해제 (과부하 방지)
+    if cur21 != target21:
+        set_angle(servo21, int(cur21))
+        idle21 = now
+    elif time.ticks_diff(now, idle21) < IDLE_MS:
+        set_angle(servo21, int(cur21))
+    else:
+        servo21.duty(0)   # PWM 해제 → 전류 차단
+
+    # a19
+    if cur19 != target19:
+        set_angle(servo19, int(cur19))
+        idle19 = now
+    elif time.ticks_diff(now, idle19) < IDLE_MS:
+        set_angle(servo19, int(cur19))
+    else:
+        servo19.duty(0)
+
+    # a22
+    if cur22 != target22:
+        set_angle(servo22, int(cur22))
+        idle22 = now
+    elif time.ticks_diff(now, idle22) < IDLE_MS:
+        set_angle(servo22, int(cur22))
+    else:
+        servo22.duty(0)
+
+    # a20 그리퍼
+    if cur20 != target20:
+        set_angle(servo20, int(cur20))
+        idle20 = now
+    elif time.ticks_diff(now, idle20) < IDLE_MS:
+        set_angle(servo20, int(cur20))
+    else:
+        servo20.duty(0)
 
 # ── 목표 설정 ─────────────────────────────────────────
 def set_target(a21, a19, a22, a20, speed):
@@ -82,9 +123,9 @@ def set_target(a21, a19, a22, a20, speed):
     global speed21, speed19, speed22, speed20
     global acc21, acc19, acc22, acc20
 
-    target21 = float(clamp(a21, -30,  45))
-    target19 = float(clamp(a19,   0,  60))
-    target22 = float(clamp(a22, -30,  45))
+    target21 = float(clamp(a21, -10,  15))  # 범위 축소 (과부하 방지)
+    target19 = float(clamp(a19,   0,  45))
+    target22 = float(clamp(a22, -20,  30))
     target20 = float(clamp(a20, -15,  15))  # 그리퍼 범위
 
     speed = clamp(speed, 1, 100)

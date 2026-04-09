@@ -15,9 +15,11 @@ sensor.skip_frames(time=2000)
 sensor.set_auto_gain(False)
 sensor.set_auto_whitebal(False)
 sensor.set_auto_exposure(False)
+sensor.set_vflip(True)      # 카메라 뒤집힘 보정 (상하)
+sensor.set_hmirror(True)    # 카메라 뒤집힘 보정 (좌우)
 
 # ── 빨강 임계값 (LAB) ─────────────────────────────────
-RED_THRESHOLD = (0, 100, 13, 127, -128, 23)
+RED_THRESHOLD = (8, 72, 11, 127, -128, 127)
 
 # ── blob 캐시 ─────────────────────────────────────────
 _cx   = -1

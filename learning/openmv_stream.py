@@ -17,7 +17,7 @@ sensor.set_auto_whitebal(True)
 # ── 노랑 임계값 (LAB) ─────────────────────────────────
 # 형식: (L_min, L_max, A_min, A_max, B_min, B_max)
 # 노랑 = B 채널 양수(36~127), A 채널 중립
-YELLOW_THRESHOLD = (27, 100, -128, 49, 36, 127)
+YELLOW_THRESHOLD = (0, 100, -128, 127, 127, 32)
 
 ROI = (0, 0, 320, 240)
 
