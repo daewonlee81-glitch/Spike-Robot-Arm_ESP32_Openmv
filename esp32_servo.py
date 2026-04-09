@@ -62,9 +62,16 @@ def step_toward_acc(current, target, speed_dps, acc):
         current = max(current - move, target)
     return current, acc
 
+# ── 그리퍼 약전류 유지 설정 ──────────────────────────
+# 목표 도달 후 500ms마다 한 번만 PWM 신호 → 평균 전류 대폭 감소
+GRIPPER_HOLD_MS  = 500
+gripper_hold_tmr = 0
+gripper_prev_tgt = 0.0
+
 def update_servos():
     global cur21, cur19, cur22, cur20
     global acc21, acc19, acc22, acc20
+    global gripper_hold_tmr, gripper_prev_tgt
 
     cur21, acc21 = step_toward_acc(cur21, target21, speed21, acc21)
     cur19, acc19 = step_toward_acc(cur19, target19, speed19, acc19)
@@ -74,7 +81,23 @@ def update_servos():
     set_angle(servo21, int(cur21))
     set_angle(servo19, int(cur19))
     set_angle(servo22, int(cur22))
-    set_angle(servo20, int(cur20))
+
+    now = time.ticks_ms()
+
+    # 목표가 바뀌면 즉시 정상 PWM으로 이동
+    if target20 != gripper_prev_tgt:
+        gripper_prev_tgt = target20
+        gripper_hold_tmr = now
+        set_angle(servo20, int(cur20))
+    elif int(cur20) != int(target20):
+        # 이동 중 → 정상 PWM
+        set_angle(servo20, int(cur20))
+        gripper_hold_tmr = now
+    elif time.ticks_diff(now, gripper_hold_tmr) >= GRIPPER_HOLD_MS:
+        # 목표 도달 후 500ms마다 한 번 신호 (약전류 유지)
+        set_angle(servo20, int(cur20))
+        gripper_hold_tmr = now
+    # else: 대기 중 → PWM 신호 없음 (전류 차단)
 
 # ── 목표 설정 ─────────────────────────────────────────
 def set_target(a21, a19, a22, a20, speed):
